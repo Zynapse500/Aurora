@@ -1,7 +1,8 @@
 [package]
 name = "aurora"
 version = "0.1.0"
-authors = ["christofer"]
+authors = ["Christofer Nolander <christofer.nolander@gmail.com>"]
 
 [dependencies]
+trap = { path = "../trap-rs" }
 glium = "0.21.0"

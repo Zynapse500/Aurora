@@ -1,4 +1,9 @@
+#[macro_use]
 extern crate glium;
+
+extern crate trap;
+
+pub use trap::*;
 
 use std::time::Instant;
 
@@ -11,15 +16,19 @@ pub use renderer::Renderer;
 mod color;
 pub use color::Color;
 
-pub fn run_app(mut app: Box<App>) {
+mod shapes;
+pub use shapes::*;
+
+
+pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
     let mut events_loop = glium::glutin::EventsLoop::new();
 
     let window = glium::glutin::WindowBuilder::new()
-        .with_dimensions(800, 600)
-        .with_title("Aurora");
+        .with_dimensions(width, height)
+        .with_title(title);
 
     let context = glium::glutin::ContextBuilder::new()
-        .with_srgb(true);
+        .with_vsync(false);
 
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
@@ -31,18 +40,20 @@ pub fn run_app(mut app: Box<App>) {
     let mut running = true;
     let mut previous_instant = Instant::now();
 
-    while running {
+    loop {
         events_loop.poll_events(|e|{
             use glium::glutin::Event;
             match e {
                 Event::WindowEvent { event, .. } => {
                     use glium::glutin::WindowEvent;
                     match event {
-                        WindowEvent::Resized(_, _) => {},
-                        WindowEvent::Moved(_, _) => {},
                         WindowEvent::Closed => {
                             running = false
                         },
+
+                        WindowEvent::Resized(_, _) => {},
+                        WindowEvent::Moved(_, _) => {},
+
                         WindowEvent::DroppedFile(_) => {},
                         WindowEvent::HoveredFile(_) => {},
                         WindowEvent::HoveredFileCancelled => {},
@@ -66,19 +77,21 @@ pub fn run_app(mut app: Box<App>) {
             }
         });
 
-        {
-            let current_instant = Instant::now();
-            let duration = current_instant - previous_instant;
-            let delta_time = duration.as_secs() as f64 + duration.subsec_nanos() as f64 * 1e-9;
-            app.update(delta_time);
+        if running {
+            {
+                let current_instant = Instant::now();
+                let duration = current_instant - previous_instant;
+                let delta_time = duration.as_secs() as f64 + duration.subsec_nanos() as f64 * 1e-9;
+                app.update(delta_time);
 
-            previous_instant = current_instant;
+                previous_instant = current_instant;
+            }
+
+            renderer.begin();
+            app.render(&mut renderer);
+            renderer.end();
+        } else {
+            break;
         }
-
-        renderer.begin();
-        app.render(&mut renderer);
-        renderer.end();
-
-        display.swap_buffers().unwrap();
     }
 }

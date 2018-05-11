@@ -13,13 +13,24 @@ use glium::Blend;
 use glium::BlendingFunction;
 use glium::LinearBlendingFactor;
 
+use glium::uniforms::MagnifySamplerFilter;
+use glium::uniforms::MinifySamplerFilter;
+
+pub use glium::PolygonMode;
+
+
 use trap::Vector2;
 
 
 use std::str::from_utf8;
 
 use Color;
-use shapes::Rectangle;
+use Texture;
+use Context;
+
+use Rectangle;
+use Circle;
+use ConvexHull;
 
 
 pub struct Renderer<'a> {
@@ -37,7 +48,14 @@ pub struct Renderer<'a> {
     frame: Option<Frame>,
 
     // The color used for filling shapes
-    fill_color: Color
+    fill_color: Color,
+
+    // The texture used on filled shapes
+    texture: Option<Texture>,
+    default_texture: Texture,
+
+    // If textures should be flipped vertically
+    flip_textures: bool
 }
 
 impl<'a> Renderer<'a> {
@@ -52,6 +70,11 @@ impl<'a> Renderer<'a> {
             None
         ).unwrap();
 
+        let default_texture = Texture::from_colors(
+            &Context::new(display.clone()),
+            &[Color::grey(1.0)], 1, 1
+        );
+
         Renderer {
             display,
 
@@ -61,6 +84,9 @@ impl<'a> Renderer<'a> {
             frame: None,
 
             fill_color: Color::grey(1.0),
+            texture: None,
+            default_texture,
+            flip_textures: false
         }
     }
 
@@ -78,7 +104,6 @@ impl<'a> Renderer<'a> {
                 alpha: BlendingFunction::AlwaysReplace,
                 constant_value: (0.0, 0.0, 0.0, 0.0),
             };
-
         } else {
             panic!("Renderer: 'begin' called before 'end'!");
         }
@@ -111,8 +136,17 @@ impl<'a> Renderer<'a> {
             let vertex_buffer = VertexBuffer::new(&self.display, vertices).unwrap();
             let index_buffer = IndexBuffer::new(&self.display, primitive, indices).unwrap();
 
-            use glium;
-            let uniforms = glium::uniforms::EmptyUniforms;
+            let texture = if let Some(ref texture) = self.texture {
+                texture
+            } else {
+                &self.default_texture
+            }.sampled()
+                .magnify_filter(MagnifySamplerFilter::Linear)
+                .minify_filter(MinifySamplerFilter::Linear);
+
+            let uniforms = uniform!(
+                tex0: texture
+            );
 
             frame.draw(&vertex_buffer, &index_buffer, &self.program, &uniforms, &self.draw_parameters).unwrap();
         }
@@ -138,38 +172,47 @@ impl<'a> Renderer<'a> {
     }
 
 
+    /// Sets the current mode to draw polygons in
+    pub fn set_polygon_mode(&mut self, mode: PolygonMode) {
+        self.draw_parameters.polygon_mode = mode;
+    }
+
+
+    /// Sets the current texture to use when drawing shapes
+    pub fn set_texture(&mut self, texture: Option<Texture>) {
+        self.texture = texture;
+    }
+
+
+    /// Determines wether or not to flip textures vertically
+    pub fn flip_textures(&mut self, flip: bool) {
+        self.flip_textures = flip;
+    }
+
+
 
     /// Creates a new vertex based on the current state
-    fn new_vertex(&self, position: Vector2) -> Vertex {
+    fn new_vertex(&self, position: Vector2, tex_coord: Option<Vector2>) -> Vertex {
         Vertex {
             position: position.into(),
             color: self.fill_color.into(),
+            tex_coord: if let Some(tex) = tex_coord {
+                if self.flip_textures {
+                    [tex.x as f32, 1.0 - tex.y as f32]
+                } else {
+                    [tex.x as f32, tex.y as f32]
+                }
+            } else {
+                [0.0; 2]
+            }
         }
     }
 
 
-
-    /// Renders a filled rectangle
-    pub fn fill_rectangle(&mut self, rectangle: Rectangle) {
-        let vertices = [
-            self.new_vertex(Vector2::new(rectangle.left, rectangle.top)),
-            self.new_vertex(Vector2::new(rectangle.right, rectangle.top)),
-            self.new_vertex(Vector2::new(rectangle.right, rectangle.bottom)),
-            self.new_vertex(Vector2::new(rectangle.left, rectangle.bottom)),
-        ];
-
-        let indices = [
-            0, 1, 2,
-            2, 3, 0
-        ];
-
-        self.draw_vertices(&vertices, &indices, PrimitiveType::TrianglesList);
-    }
-
     /// Renders multiple points
     pub fn draw_points(&mut self, points: &[Vector2]) {
         let vertices: Vec<Vertex> = points.iter().map(|p|{
-            self.new_vertex(*p)
+            self.new_vertex(*p, None)
         }).collect();
 
         self.draw_vertices(
@@ -182,8 +225,8 @@ impl<'a> Renderer<'a> {
     /// Renders a line
     pub fn draw_line(&mut self, start: Vector2, end: Vector2) {
         let vertices = [
-            self.new_vertex(start),
-            self.new_vertex(end)
+            self.new_vertex(start, None),
+            self.new_vertex(end, None)
         ];
 
         self.draw_vertices(
@@ -196,8 +239,113 @@ impl<'a> Renderer<'a> {
 #[derive(Debug)]
 struct Vertex {
     pub position: [f32; 2],
-    pub color: [f32; 4]
+    pub color: [f32; 4],
+    pub tex_coord: [f32; 2]
 }
 
 
-implement_vertex!(Vertex, position, color);
+implement_vertex!(Vertex, position, color, tex_coord);
+
+
+
+pub trait Render<S> {
+    fn fill(&mut self, object: &S);
+    fn draw(&mut self, object: &S);
+}
+
+
+impl<'a> Render<Rectangle> for Renderer<'a> {
+    fn fill(&mut self, rectangle: &Rectangle) {
+        let vertices = [
+            self.new_vertex(
+                Vector2::new(rectangle.left, rectangle.top),
+                Some(Vector2::new(0.0, 1.0))
+            ),
+            self.new_vertex(
+                Vector2::new(rectangle.right, rectangle.top),
+                Some(Vector2::new(1.0, 1.0))
+            ),
+            self.new_vertex(
+                Vector2::new(rectangle.right, rectangle.bottom),
+                Some(Vector2::new(1.0, 0.0))
+            ),
+            self.new_vertex(
+                Vector2::new(rectangle.left, rectangle.bottom),
+                Some(Vector2::new(0.0, 0.0))
+            ),
+        ];
+
+        let indices = [
+            0, 1, 2,
+            2, 3, 0
+        ];
+
+        self.draw_vertices(&vertices, &indices, PrimitiveType::TrianglesList);
+    }
+
+    #[allow(unused_variables)]
+    fn draw(&mut self, rectangle: &Rectangle) {
+        unimplemented!()
+    }
+}
+
+impl<'a> Render<Circle> for Renderer<'a> {
+    fn fill(&mut self, circle: &Circle) {
+        use std::f64::consts::PI;
+        const SEGMENTS: u32 = 64;
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        vertices.push(self.new_vertex(
+            circle.center, None
+        ));
+
+        for i in 0..SEGMENTS {
+            let (dy, dx) = (i as f64 / SEGMENTS as f64 * PI * 2.0).sin_cos();
+
+            vertices.push(self.new_vertex(
+                circle.center + circle.radius * Vector2::new(dx, dy), None
+            ));
+
+            indices.push(0);
+            indices.push(i + 1);
+            indices.push((i + 1) % SEGMENTS + 1);
+        }
+
+        self.draw_vertices(&vertices, &indices, PrimitiveType::TrianglesList);
+    }
+
+    #[allow(unused_variables)]
+    fn draw(&mut self, circle: &Circle) {
+        unimplemented!()
+    }
+}
+
+impl<'a> Render<ConvexHull> for Renderer<'a> {
+    fn fill(&mut self, hull: &ConvexHull) {
+        let vertices: Vec<Vertex> = hull.points.iter().map(|p|{
+            self.new_vertex(*p, None)
+        }).collect();
+
+        let mut indices = Vec::new();
+        indices.reserve((hull.points.len() - 2) * 3 );
+
+        for i in 1..hull.points.len()-1 {
+            indices.push(0);
+            indices.push(i as u32);
+            indices.push(i as u32 + 1);
+        }
+
+        self.draw_vertices(
+            &vertices,
+            &indices,
+            PrimitiveType::TrianglesList
+        );
+    }
+
+    #[allow(unused_variables)]
+    fn draw(&mut self, hull: &ConvexHull) {
+        unimplemented!()
+    }
+}

@@ -1,11 +1,13 @@
 #version 330
 
-in vec2 position;
-in vec4 color;
+attribute vec2 position;
+attribute vec4 color;
+attribute vec2 tex_coord;
 
 out FragData {
     vec2 position;
     vec4 color;
+    vec2 tex_coord;
 } frag;
 
 void main() {
@@ -13,4 +15,5 @@ void main() {
 
 	frag.position = position;
 	frag.color = color;
+	frag.tex_coord = tex_coord;
 }

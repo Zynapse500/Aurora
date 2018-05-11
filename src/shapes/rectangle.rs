@@ -1,6 +1,7 @@
 
 use trap::Vector2;
 
+#[derive(Copy, Clone)]
 pub struct Rectangle {
     pub left: f64,
     pub right: f64,

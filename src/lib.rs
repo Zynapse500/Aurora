@@ -3,21 +3,49 @@ extern crate glium;
 
 extern crate trap;
 
+
+extern crate image;
+
+
+
 pub use trap::*;
 
 use std::time::Instant;
 
+
+mod context;
+pub use context::Context;
+
 mod app;
 pub use app::App;
+pub use app::KeyCode;
 
 mod renderer;
 pub use renderer::Renderer;
+pub use renderer::Render;
+pub use renderer::PolygonMode;
 
 mod color;
 pub use color::Color;
 
 mod shapes;
-pub use shapes::*;
+pub use shapes::Rectangle;
+pub use shapes::Circle;
+pub use shapes::ConvexHull;
+
+
+mod texture;
+pub use texture::Texture;
+
+
+mod frame_counter;
+pub use frame_counter::FrameCounter;
+
+
+
+use glium::glutin::KeyboardInput;
+use glium::glutin::ElementState;
+use std::collections::HashSet;
 
 
 pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
@@ -25,20 +53,24 @@ pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
 
     let window = glium::glutin::WindowBuilder::new()
         .with_dimensions(width, height)
+        //.with_fullscreen(Some(events_loop.get_primary_monitor()))
         .with_title(title);
 
     let context = glium::glutin::ContextBuilder::new()
+        .with_multisampling(8)
         .with_vsync(false);
 
     let display = glium::Display::new(window, context, &events_loop).unwrap();
 
     let mut renderer = Renderer::new(display.clone());
 
-    app.init();
+
+    app.init(Context::new(display.clone()));
 
 
     let mut running = true;
     let mut previous_instant = Instant::now();
+    let mut pressed_keys = HashSet::new();
 
     loop {
         events_loop.poll_events(|e|{
@@ -51,7 +83,9 @@ pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
                             running = false
                         },
 
-                        WindowEvent::Resized(_, _) => {},
+                        WindowEvent::Resized(w, h) => {
+                            app.size_changed(w, h);
+                        },
                         WindowEvent::Moved(_, _) => {},
 
                         WindowEvent::DroppedFile(_) => {},
@@ -59,7 +93,23 @@ pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
                         WindowEvent::HoveredFileCancelled => {},
                         WindowEvent::ReceivedCharacter(_) => {},
                         WindowEvent::Focused(_) => {},
-                        WindowEvent::KeyboardInput { .. } => {},
+                        WindowEvent::KeyboardInput { input: KeyboardInput {
+                            state, virtual_keycode, ..
+                        }, .. } => {
+                            if let Some(key_code) = virtual_keycode {
+                                match state {
+                                    ElementState::Pressed => {
+                                        if pressed_keys.insert(key_code) {
+                                            app.key_pressed(key_code);
+                                        }
+                                    },
+                                    ElementState::Released => {
+                                        pressed_keys.remove(&key_code);
+                                        app.key_released(key_code);
+                                    },
+                                }
+                            }
+                        },
                         WindowEvent::CursorMoved { .. } => {},
                         WindowEvent::CursorEntered { .. } => {},
                         WindowEvent::CursorLeft { .. } => {},

@@ -19,19 +19,28 @@ pub use context::Context;
 mod app;
 pub use app::App;
 pub use app::KeyCode;
+pub use app::MouseButton;
 
 mod renderer;
 pub use renderer::Renderer;
 pub use renderer::Render;
+pub use renderer::Triangulate;
 pub use renderer::PolygonMode;
 
 mod color;
 pub use color::Color;
 
 mod shapes;
+pub use shapes::Shape;
 pub use shapes::Rectangle;
 pub use shapes::Circle;
 pub use shapes::ConvexHull;
+
+
+mod collision;
+pub use collision::Collide;
+pub use collision::intersect;
+pub use collision::overlap;
 
 
 mod texture;
@@ -110,11 +119,22 @@ pub fn run_app(mut app: Box<App>, width: u32, height: u32, title: &str) {
                                 }
                             }
                         },
-                        WindowEvent::CursorMoved { .. } => {},
+                        WindowEvent::CursorMoved { position: (x, y), .. } => {
+                            app.cursor_moved(x, y);
+                        },
                         WindowEvent::CursorEntered { .. } => {},
                         WindowEvent::CursorLeft { .. } => {},
                         WindowEvent::MouseWheel { .. } => {},
-                        WindowEvent::MouseInput { .. } => {},
+                        WindowEvent::MouseInput { state, button, .. } => {
+                            match state {
+                                ElementState::Pressed => {
+                                    app.mouse_pressed(button);
+                                },
+                                ElementState::Released => {
+                                    app.mouse_released(button);
+                                },
+                            }
+                        },
                         WindowEvent::TouchpadPressure { .. } => {},
                         WindowEvent::AxisMotion { .. } => {},
                         WindowEvent::Refresh => {},

@@ -1,5 +1,8 @@
 
 use trap::Vector2;
+use renderer::Triangulate;
+use renderer::Triangles;
+use collision::Collide;
 
 #[derive(Copy, Clone)]
 pub struct Rectangle {
@@ -48,5 +51,75 @@ impl Rectangle {
         self.right += margin;
         self.top += margin;
         self.bottom -= margin;
+    }
+
+
+    /// Returns true of two rectangles occupy the same space
+    pub fn intersects(&self, other: &Rectangle) -> bool {
+        self.left < other.right && other.left < self.right &&
+            self.bottom < other.top && other.bottom < self.top
+    }
+}
+
+
+
+impl super::Shape for Rectangle {
+    fn translate(&mut self, amount: Vector2) {
+        self.left += amount.x;
+        self.right += amount.x;
+        self.top += amount.y;
+        self.bottom += amount.y;
+    }
+
+    fn center(&self) -> Vector2 {
+        Vector2 {
+            x: (self.left + self.right) * 0.5,
+            y: (self.top + self.bottom) * 0.5,
+        }
+    }
+}
+
+
+impl Triangulate for Rectangle {
+    fn get_triangles(&self) -> Triangles {
+        Triangles::IndexedTriangles(
+            vec![
+                Vector2::new(self.left, self.top),
+                Vector2::new(self.right, self.top),
+                Vector2::new(self.right, self.bottom),
+                Vector2::new(self.left, self.bottom)
+            ],
+            vec![
+                0, 1, 2,
+                2, 3, 0
+            ]
+        )
+    }
+}
+
+
+impl Collide for Rectangle {
+    fn get_farthest_point(&self, axis: Vector2) -> Vector2 {
+        if self.bottom < self.top {
+            if axis.x > 0.0 {
+                if axis.y > 0.0 {
+                    Vector2::new(self.right, self.top)
+                } else {
+                    Vector2::new(self.right, self.bottom)
+                }
+            } else {
+                if axis.y > 0.0 {
+                    Vector2::new(self.left, self.top)
+                } else {
+                    Vector2::new(self.left, self.bottom)
+                }
+            }
+        } else {
+            unimplemented!()
+        }
+    }
+
+    fn get_bounding_box(&self) -> Rectangle {
+        self.clone()
     }
 }

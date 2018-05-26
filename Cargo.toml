@@ -4,6 +4,6 @@ version = "0.1.0"
 authors = ["Christofer Nolander <christofer.nolander@gmail.com>"]
 
 [dependencies]
-trap = { path = "../trap-rs" }
 glium = "0.21.0"
 image = "0.19.0"
+trap = { git = "https://github.com/Zynapse500/trap-rs.git" }

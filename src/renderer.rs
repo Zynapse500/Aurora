@@ -27,10 +27,31 @@ use std::str::from_utf8;
 use Color;
 use Texture;
 use Context;
+use shapes::Rectangle;
 
-use Rectangle;
-use Circle;
-use ConvexHull;
+
+/// Render an object
+pub trait Render<S> {
+    fn fill(&mut self, object: S);
+    fn draw(&mut self, object: S);
+}
+
+
+
+/// Anything that can be turned into triangles
+pub trait Triangulate {
+    fn get_triangles(&self) -> Triangles;
+}
+
+
+pub enum Triangles {
+    // An array of interleaved triangles
+    TriangleList(Vec<(Vector2, Vector2, Vector2)>),
+
+    // An array of points with indices of interleaved triangles
+    IndexedTriangles(Vec<Vector2>, Vec<u32>)
+}
+
 
 
 pub struct Renderer<'a> {
@@ -42,6 +63,10 @@ pub struct Renderer<'a> {
 
     // Parameters to use while drawing
     draw_parameters: DrawParameters<'a>,
+
+
+    // The current view of the rectangle
+    view: Rectangle,
 
 
     // The frame to render to
@@ -81,6 +106,8 @@ impl<'a> Renderer<'a> {
             program,
             draw_parameters: DrawParameters::default(),
 
+            view: Rectangle::new(-1.0, 1.0, 1.0, -1.0),
+
             frame: None,
 
             fill_color: Color::grey(1.0),
@@ -89,7 +116,6 @@ impl<'a> Renderer<'a> {
             flip_textures: false
         }
     }
-
 
     pub(crate) fn begin(&mut self) {
         if self.frame.is_none() {
@@ -123,7 +149,7 @@ impl<'a> Renderer<'a> {
     /// Clears the screen with a solid color
     pub fn clear(&mut self, color: Color) {
         if let Some(ref mut frame) = self.frame {
-            frame.clear_color_srgb(color.r, color.g, color.b, color.a);
+            frame.clear_color(color.r, color.g, color.b, color.a);
         } else {
             panic!("Renderer: Attempted to draw before calling 'begin'");
         }
@@ -145,13 +171,22 @@ impl<'a> Renderer<'a> {
                 .minify_filter(MinifySamplerFilter::Linear);
 
             let uniforms = uniform!(
-                tex0: texture
+                tex0: texture,
+                left:   self.view.left      as f32,
+                right:  self.view.right     as f32,
+                top:    self.view.top       as f32,
+                bottom: self.view.bottom    as f32,
             );
 
             frame.draw(&vertex_buffer, &index_buffer, &self.program, &uniforms, &self.draw_parameters).unwrap();
         }
     }
 
+
+    /// Sets the current view
+    pub fn set_view(&mut self, view: Rectangle) {
+        self.view = view;
+    }
 
 
     /// Sets the current fill color
@@ -248,104 +283,39 @@ implement_vertex!(Vertex, position, color, tex_coord);
 
 
 
-pub trait Render<S> {
-    fn fill(&mut self, object: &S);
-    fn draw(&mut self, object: &S);
-}
-
-
-impl<'a> Render<Rectangle> for Renderer<'a> {
-    fn fill(&mut self, rectangle: &Rectangle) {
-        let vertices = [
-            self.new_vertex(
-                Vector2::new(rectangle.left, rectangle.top),
-                Some(Vector2::new(0.0, 1.0))
-            ),
-            self.new_vertex(
-                Vector2::new(rectangle.right, rectangle.top),
-                Some(Vector2::new(1.0, 1.0))
-            ),
-            self.new_vertex(
-                Vector2::new(rectangle.right, rectangle.bottom),
-                Some(Vector2::new(1.0, 0.0))
-            ),
-            self.new_vertex(
-                Vector2::new(rectangle.left, rectangle.bottom),
-                Some(Vector2::new(0.0, 0.0))
-            ),
-        ];
-
-        let indices = [
-            0, 1, 2,
-            2, 3, 0
-        ];
-
-        self.draw_vertices(&vertices, &indices, PrimitiveType::TrianglesList);
-    }
-
-    #[allow(unused_variables)]
-    fn draw(&mut self, rectangle: &Rectangle) {
-        unimplemented!()
-    }
-}
-
-impl<'a> Render<Circle> for Renderer<'a> {
-    fn fill(&mut self, circle: &Circle) {
-        use std::f64::consts::PI;
-        const SEGMENTS: u32 = 64;
-
+impl<'a> Render<Triangles> for Renderer<'a> {
+    fn fill(&mut self, object: Triangles) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        vertices.push(self.new_vertex(
-            circle.center, None
-        ));
+        match object {
+            Triangles::TriangleList(triangles) => {
+                for (a, b, c) in triangles.into_iter() {
+                    let len = vertices.len() as u32;
+                    vertices.push(self.new_vertex(a, None));
+                    vertices.push(self.new_vertex(b, None));
+                    vertices.push(self.new_vertex(c, None));
 
-        for i in 0..SEGMENTS {
-            let (dy, dx) = (i as f64 / SEGMENTS as f64 * PI * 2.0).sin_cos();
+                    indices.push(len);
+                    indices.push(len + 1);
+                    indices.push(len + 2);
+                }
+            },
 
-            vertices.push(self.new_vertex(
-                circle.center + circle.radius * Vector2::new(dx, dy), None
-            ));
-
-            indices.push(0);
-            indices.push(i + 1);
-            indices.push((i + 1) % SEGMENTS + 1);
-        }
-
-        self.draw_vertices(&vertices, &indices, PrimitiveType::TrianglesList);
-    }
-
-    #[allow(unused_variables)]
-    fn draw(&mut self, circle: &Circle) {
-        unimplemented!()
-    }
-}
-
-impl<'a> Render<ConvexHull> for Renderer<'a> {
-    fn fill(&mut self, hull: &ConvexHull) {
-        let vertices: Vec<Vertex> = hull.points.iter().map(|p|{
-            self.new_vertex(*p, None)
-        }).collect();
-
-        let mut indices = Vec::new();
-        indices.reserve((hull.points.len() - 2) * 3 );
-
-        for i in 1..hull.points.len()-1 {
-            indices.push(0);
-            indices.push(i as u32);
-            indices.push(i as u32 + 1);
+            Triangles::IndexedTriangles(points, triangle_indices) => {
+                indices = triangle_indices;
+                vertices = points.into_iter().map(|p|self.new_vertex(p, None)).collect();
+            }
         }
 
         self.draw_vertices(
-            &vertices,
-            &indices,
+            &vertices, &indices,
             PrimitiveType::TrianglesList
-        );
+        )
     }
 
-    #[allow(unused_variables)]
-    fn draw(&mut self, hull: &ConvexHull) {
+    fn draw(&mut self, object: Triangles) {
         unimplemented!()
     }
 }
+
